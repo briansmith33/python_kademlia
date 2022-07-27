@@ -10,7 +10,6 @@ import gzip
 import json
 
 if __name__ == '__main__':
-    app_name = "2Can"
 
     '''
     parser = argparse.ArgumentParser()
