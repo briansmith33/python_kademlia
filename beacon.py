@@ -6,6 +6,7 @@ from event_chain import EventChain
 from Crypto.PublicKey import ECC
 from Crypto.Signature import DSS
 from Crypto.Hash import SHA512
+from Crypto.Cipher import AES
 from threading import Thread
 from kbucket import KBucket
 from event import Event
@@ -20,6 +21,7 @@ import gzip
 import json
 import uuid
 import time
+import ssl
 import os
 
 
@@ -37,6 +39,9 @@ class Beacon(Thread):
         self.buffer_size:   int = Config.BufferSize.value
         self.alpha:         int = Config.Alpha.value
         self.last_update:   Optional[float] = None
+        self.key_length:    int = Config.KeyLength.value
+        self.generator:     int = Config.Generator.value
+        self.prime:         Optional[int] = None
         self.pub_key:       str = Config.PubKey.value
         self.backup_hosts:  List[str] = Config.BackupHosts.value
 
@@ -44,16 +49,18 @@ class Beacon(Thread):
     def get_mac_address() -> str:
         return ':'.join(['{:02x}'.format((uuid.getnode() >> el) & 0xff) for el in range(0, 8 * 6, 8)][::-1])
 
-    def send(self, addr: Tuple[str, int], header: Optional[MsgType] = "", msg: Optional[str] = "") -> None:
-        encoded_msg = b64encode(json.dumps({"header": header, "msg": msg}).encode())
-        msg_size = struct.pack(">L", len(encoded_msg))
-        self.sock.sendto(msg_size, addr)
+    def generate_private_key(self) -> int:
+        return int.from_bytes(ssl.RAND_bytes(self.key_length), byteorder='big')
 
-        while encoded_msg:
-            self.sock.sendto(encoded_msg[:self.buffer_size], addr)
-            encoded_msg = encoded_msg[self.buffer_size:]
+    def generate_public_key(self, private_key: int) -> int:
+        return pow(self.generator, private_key, self.prime)
 
-    def receive(self) -> Tuple[str, str, str, Tuple[str, int]]:
+    def get_key(self, remote_pub_key: int, private_key: int) -> bytes:
+        shared_secret = pow(remote_pub_key, private_key, self.prime)
+        shared_secret_bytes = shared_secret.to_bytes(shared_secret.bit_length() // 8 + 1, byteorder="big")
+        return hashlib.sha256(shared_secret_bytes).digest()
+
+    def perform_key_exchange(self) -> Optional[bytes]:
         response = b""
         msg_size = struct.calcsize(">L")
         while len(response) < msg_size:
@@ -69,7 +76,69 @@ class Beacon(Thread):
             response += data
 
         response = json.loads(b64decode(response))
-        return response['header'], response['msg'], response['port'], addr
+
+        try:
+            prime = int(response['prime'])
+            remote_pub_key = int(response['pub_key'])
+        except (KeyError, ValueError):
+            return
+
+        if prime.bit_length() == 1024:
+            self.prime = prime
+            private_key = self.generate_private_key()
+            pub_key = self.generate_public_key(private_key)
+            response = pub_key.to_bytes(pub_key.bit_length() // 8 + 1, byteorder="big")
+
+            msg_size = struct.pack(">L", len(response))
+            self.sock.sendto(msg_size, addr)
+
+            while response:
+                self.sock.sendto(response[:self.buffer_size], addr)
+                response = response[self.buffer_size:]
+
+            return self.get_key(remote_pub_key, private_key)
+
+    def send(self, addr: Tuple[str, int], key: bytes, header: Optional[MsgType] = "", msg: Optional[str] = "") -> None:
+        cipher = AES.new(key, AES.MODE_GCM)
+        cipher.update(header.encode())
+        ciphertext, tag = cipher.encrypt_and_digest(msg.encode())
+        json_k = ['nonce', 'header', 'ciphertext', 'tag']
+        json_v = [b64encode(x).decode('utf-8') for x in [cipher.nonce, header.encode(), ciphertext, tag]]
+
+        encoded_msg = b64encode(json.dumps(dict(zip(json_k, json_v))).encode())
+        msg_size = struct.pack(">L", len(encoded_msg))
+        self.sock.sendto(msg_size, addr)
+
+        while encoded_msg:
+            self.sock.sendto(encoded_msg[:self.buffer_size], addr)
+            encoded_msg = encoded_msg[self.buffer_size:]
+
+    def receive(self, key: bytes) -> Tuple[str, str, str, Tuple[str, int]]:
+        response = b""
+        msg_size = struct.calcsize(">L")
+        while len(response) < msg_size:
+            data, _ = self.sock.recvfrom(self.buffer_size)
+            response += data
+
+        packed_msg_size = response[:msg_size]
+        response = response[msg_size:]
+        msg_size = struct.unpack(">L", packed_msg_size)[0]
+        addr = None
+        while len(response) < msg_size:
+            data, addr = self.sock.recvfrom(self.buffer_size)
+            response += data
+
+        b64 = json.loads(b64decode(response))
+        json_k = ['nonce', 'header', 'ciphertext', 'tag']
+        jv = {k: b64decode(b64[k]) for k in json_k}
+        cipher = AES.new(key, AES.MODE_GCM, nonce=jv['nonce'])
+        cipher.update(jv['header'])
+
+        header = jv['header'].decode()
+        data = json.loads(cipher.decrypt_and_verify(jv['ciphertext'], jv['tag']).decode())
+        msg = data['msg']
+        port = data['port']
+        return header, msg, port, addr
 
     def bootstrap(self) -> Optional[KBucket]:
         return self.find_node(self.id, Peer(self.boot_port))
@@ -221,22 +290,26 @@ class Beacon(Thread):
         # Thread(target=self.store_table).start()
 
         while True:
-            header, data, port, addr = self.receive()
+            key = self.perform_key_exchange()
+            if not key:
+                continue
+
+            header, data, port, addr = self.receive(key)
 
             if header == MsgType.Ping:
                 peer_id = hashlib.sha1(addr[0].encode() + bytes(int(port))).hexdigest()
                 found = self.routing_table.find_node(peer_id)
                 if not found:
                     self.routing_table.add_node(self.port, Peer(int(port)))
-                self.send(addr, MsgType.Pong)
+                self.send(addr, key, MsgType.Pong)
 
             if header == MsgType.FindNode:
                 peer_id = data
                 bucket = self.routing_table.find_closest(peer_id)
                 if bucket:
-                    self.send(addr, MsgType.Found, json.dumps(bucket.as_tuples()+[(self.addr, self.port)]))
+                    self.send(addr, key, MsgType.Found, json.dumps(bucket.as_tuples()+[(self.addr, self.port)]))
                 else:
-                    self.send(addr, MsgType.Found, json.dumps([(self.addr, self.port)]))
+                    self.send(addr, key, MsgType.Found, json.dumps([(self.addr, self.port)]))
 
                 peer_id = hashlib.sha1(addr[0].encode() + bytes(int(port))).hexdigest()
                 found = self.routing_table.find_node(peer_id)
@@ -247,19 +320,19 @@ class Beacon(Thread):
                 node_id = data
                 file = self.storage.find_node(node_id)
                 if file:
-                    self.send(addr, MsgType.Found, json.dumps(file.as_tuple()))
+                    self.send(addr, key, MsgType.Found, json.dumps(file.as_tuple()))
                 else:
-                    self.send(addr, MsgType.NotFound)
+                    self.send(addr, key, MsgType.NotFound)
 
             if header == MsgType.GetValue:
                 filename = data
                 try:
                     with open(filename, 'rb') as f:
                         data = b64encode(gzip.compress(f.read())).decode()
-                        self.send(addr, MsgType.Found, data)
+                        self.send(addr, key, MsgType.Found, data)
 
                 except FileNotFoundError:
-                    self.send(addr, MsgType.NotFound)
+                    self.send(addr, key, MsgType.NotFound)
 
             if header == MsgType.Store:
                 data = json.loads(data)
@@ -267,7 +340,7 @@ class Beacon(Thread):
                 file.from_tuple(data)
                 self.storage.add_node(self.port, file)
                 print(self.storage.as_tuples())
-                self.send(addr, MsgType.Stored)
+                self.send(addr, key, MsgType.Stored)
 
             if header == MsgType.Event:
                 data = json.loads(data)

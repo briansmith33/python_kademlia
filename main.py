@@ -30,7 +30,7 @@ if __name__ == '__main__':
     beacon = Beacon(args.port, args.boot_port)
     beacon.start()
 
-    key_path = "assets/private_key.pem"
+    key_path = "../assets/private_key.pem"
 
     with open(key_path, 'rt') as f:
         private_key = ECC.import_key(f.read())

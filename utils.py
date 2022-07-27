@@ -18,6 +18,8 @@ class MsgType(str, Enum):
 
 class Config(Enum):
     BufferSize = 4096
+    KeyLength = 540
+    Generator = 3
     KNodes = 5
     Alpha = 3
     PubKey = "-----BEGIN PUBLIC KEY-----\n" \
