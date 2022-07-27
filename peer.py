@@ -1,6 +1,6 @@
 from base64 import b64encode, b64decode
 from typing import Optional, Tuple
-from utils import MsgType, Config
+from utils import get_target_range, MsgType, Config
 from Crypto.Util import number
 from Crypto.Cipher import AES
 from node import Node
@@ -19,6 +19,7 @@ class Peer(Node):
         self.addr:          str = socket.gethostbyname(socket.gethostname())
         self.port:          int = port
         self.id:            str = hashlib.sha1(self.addr.encode()+bytes(self.port)).hexdigest()
+        self.difficulty:    int = 0
         self.buffer:        int = Config.BufferSize.value
         self.aes_key:       Optional[bytes] = None
         self.key_length:    int = Config.KeyLength.value
@@ -43,15 +44,17 @@ class Peer(Node):
         shared_secret_bytes = shared_secret.to_bytes(shared_secret.bit_length() // 8 + 1, byteorder="big")
         return hashlib.sha256(shared_secret_bytes).digest()
 
-    def perform_key_exchange(self) -> bool:
+    def perform_key_exchange(self, port: int) -> bool:
         try:
             if not self.prime:
-                self.prime = number.getPrime(1024, ssl.RAND_bytes)
+                self.prime = number.getPrime(2048, ssl.RAND_bytes)
             self.priv_key = self.generate_private_key()
             self.pub_key = self.generate_public_key()
             msg = {
+                "nonce": self.calculate_nonce(),
                 "prime": self.prime,
-                "pub_key": self.pub_key
+                "pub_key": self.pub_key,
+                "port": port
             }
             encoded_msg = b64encode(json.dumps(msg).encode())
             msg_size = struct.pack(">L", len(encoded_msg))
@@ -76,9 +79,20 @@ class Peer(Node):
 
             remote_pub_key = int.from_bytes(response, byteorder='big')
             self.aes_key = self.get_key(remote_pub_key)
+
             return True
         except (TimeoutError, socket.timeout, socket.error):
             return False
+
+    def calculate_nonce(self) -> int:
+        min_target, max_target = get_target_range(self.difficulty, len(self.id))
+        peer_id = int(self.id, 16).to_bytes(len(self.id), byteorder='big')
+        nonce = 0
+        while True:
+            h = int.from_bytes(hashlib.sha1(peer_id + bytes(nonce)).digest(), byteorder='big')
+            if min_target < h < max_target:
+                return nonce
+            nonce += 1
 
     def copy(self):
         return Peer(self.port)
@@ -90,11 +104,11 @@ class Peer(Node):
         return self.addr, self.port, self.last_seen
 
     def send(self, port: int, header: Optional[MsgType] = "", msg: Optional[str] = "") -> bool:
-        response = self.perform_key_exchange()
+        response = self.perform_key_exchange(port)
         if response:
             cipher = AES.new(self.aes_key, AES.MODE_GCM)
             cipher.update(header.encode())
-            msg = json.dumps({"msg": msg, "port": str(port)})
+            msg = json.dumps({"msg": msg, "port": port})
             ciphertext, tag = cipher.encrypt_and_digest(msg.encode())
             json_k = ['nonce', 'header', 'ciphertext', 'tag']
             json_v = [b64encode(x).decode('utf-8') for x in [cipher.nonce, header.encode(), ciphertext, tag]]

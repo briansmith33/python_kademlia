@@ -20,13 +20,13 @@ class Config(Enum):
     BufferSize = 4096
     KeyLength = 540
     Generator = 3
-    KNodes = 5
+    KNodes = 20
     Alpha = 3
-    PubKey = "-----BEGIN PUBLIC KEY-----\n" \
-             "MIGbMBAGByqGSM49AgEGBSuBBAAjA4GGAAQBXu3uey1oWOWrIbYIH09+nmP2KnUN\n" \
-             "dcT7p5fWfsEjnqUsnR4ZE5DjRJ+TDSu5GcGtKjs0y50dx1eIJwOIkTUxcKYAotfj\n" \
-             "V3GlPV93G6FuqpWG8tUePo7v9mpigyMnm30IEEV//nXaZKitYxdZMehEmnSBBbgq\n" \
-             "cbi8TkGVP8TseB0tasI=\n" \
+    PubKey = "-----BEGIN PUBLIC KEY-----\n"\
+             "MIGbMBAGByqGSM49AgEGBSuBBAAjA4GGAAQBmRPfBQh2igY58tKnFr6wC08OIs+T\n"\
+             "Aovl2Rc+DW4pkIRpUkuz1Fb4bqPsCWeY+AWr2ow+YVopSS93QU3DNkkZvNMAEQdK\n"\
+             "6E9YBpKn1pq/V71fURD4Y619tkJnqy+AFPXf+VNa20kenr0s8TibIJS8fn0qUsOW\n"\
+             "inRoA1bpD6SsFh20P8Y=\n"\
              "-----END PUBLIC KEY-----"
     BackupHosts = [
             "www.host.com",

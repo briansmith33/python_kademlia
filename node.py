@@ -8,6 +8,9 @@ class Node:
         self.left:  Optional[Node] = None
         self.right: Optional[Node] = None
 
+    def perform_key_exchange(self, port) -> bool:
+        pass
+
     def send(self, port: int, header: Optional[MsgType] = "", msg: Optional[str] = "") -> None:
         pass
 

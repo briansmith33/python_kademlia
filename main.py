@@ -13,7 +13,7 @@ import os
 
 
 def interact(node):
-    key_path = os.path.join(os.getcwd(), sys.argv[0], 'assets/private_key.pem')
+    key_path = '../assets/private_key.pem'
     with open(key_path, 'rt') as f:
         private_key = ECC.import_key(f.read())
 

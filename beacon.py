@@ -1,4 +1,4 @@
-from utils import hexify_ip, unhexify_ip, MsgType, Config
+from utils import hexify_ip, unhexify_ip, MsgType, Config, get_target_range
 from typing import Optional, List, Tuple
 from base64 import b64encode, b64decode
 from bucket_list import BucketList
@@ -61,6 +61,7 @@ class Beacon(Thread):
         return hashlib.sha256(shared_secret_bytes).digest()
 
     def perform_key_exchange(self) -> Optional[bytes]:
+
         response = b""
         msg_size = struct.calcsize(">L")
         while len(response) < msg_size:
@@ -78,25 +79,35 @@ class Beacon(Thread):
         response = json.loads(b64decode(response))
 
         try:
+            nonce = int(response['nonce'])
             prime = int(response['prime'])
             remote_pub_key = int(response['pub_key'])
+            port = int(response['port'])
         except (KeyError, ValueError):
             return
 
-        if prime.bit_length() == 1024:
+        if prime.bit_length() == 2048:
             self.prime = prime
-            private_key = self.generate_private_key()
-            pub_key = self.generate_public_key(private_key)
-            response = pub_key.to_bytes(pub_key.bit_length() // 8 + 1, byteorder="big")
+            peer_id = hashlib.sha1(addr[0].encode()+bytes(port)).hexdigest()
+            peer = self.routing_table.find_node(peer_id)
+            if not peer:
+                peer = Peer(port)
+            min_target, max_target = get_target_range(peer.difficulty, len(self.id))
+            peer_id = int(self.id, 16).to_bytes(len(self.id), byteorder='big')
+            h = hashlib.sha1(peer_id+bytes(nonce)).hexdigest()
+            if min_target < int(h, 16) < max_target:
+                private_key = self.generate_private_key()
+                pub_key = self.generate_public_key(private_key)
+                response = pub_key.to_bytes(pub_key.bit_length() // 8 + 1, byteorder="big")
 
-            msg_size = struct.pack(">L", len(response))
-            self.sock.sendto(msg_size, addr)
+                msg_size = struct.pack(">L", len(response))
+                self.sock.sendto(msg_size, addr)
 
-            while response:
-                self.sock.sendto(response[:self.buffer_size], addr)
-                response = response[self.buffer_size:]
+                while response:
+                    self.sock.sendto(response[:self.buffer_size], addr)
+                    response = response[self.buffer_size:]
 
-            return self.get_key(remote_pub_key, private_key)
+                return self.get_key(remote_pub_key, private_key)
 
     def send(self, addr: Tuple[str, int], key: bytes, header: Optional[MsgType] = "", msg: Optional[str] = "") -> None:
         cipher = AES.new(key, AES.MODE_GCM)
@@ -293,8 +304,10 @@ class Beacon(Thread):
             key = self.perform_key_exchange()
             if not key:
                 continue
-
-            header, data, port, addr = self.receive(key)
+            try:
+                header, data, port, addr = self.receive(key)
+            except TypeError:
+                continue
 
             if header == MsgType.Ping:
                 peer_id = hashlib.sha1(addr[0].encode() + bytes(int(port))).hexdigest()
