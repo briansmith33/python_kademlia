@@ -143,9 +143,8 @@ class Peer(Node):
         return self.receive()
 
     def ping(self, port: int) -> bool:
-        self.send(port, MsgType.Ping)
         try:
-            response = self.receive()
+            response = self.send_recv(port, MsgType.Ping)
             if response and response[0] == MsgType.Pong:
                 return True
         except (TimeoutError, socket.timeout, socket.error):

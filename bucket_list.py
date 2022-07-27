@@ -64,10 +64,7 @@ class BucketList:
             self.delete_bucket(bucket)
             left_distance = int(k1.root.id, 16) ^ int(new_node.id, 16)
             right_distance = int(k2.root.id, 16) ^ int(new_node.id, 16)
-            if left_distance < right_distance:
-                k1.add(new_node)
-            else:
-                k2.add(new_node)
+            k1.add(new_node) if left_distance < right_distance else k2.add(new_node)
             self.insert(k1)
             self.insert(k2)
 

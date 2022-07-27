@@ -8,29 +8,12 @@ import argparse
 import hashlib
 import gzip
 import json
+import sys
+import os
 
-if __name__ == '__main__':
 
-    '''
-    parser = argparse.ArgumentParser()
-    parser.add_argument('bootaddr', nargs='?', type=str)
-    args = parser.parse_args()
-    server = Server(args.bootaddr)
-    Thread(target=server.run, daemon=True).start()
-    while True:
-        msg = input(">> ")
-        server.broadcast(msg)
-    '''
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('port', type=int)
-    parser.add_argument('boot_port', nargs='?', type=int)
-    args = parser.parse_args()
-    beacon = Beacon(args.port, args.boot_port)
-    beacon.start()
-
-    key_path = "../assets/private_key.pem"
-
+def interact(node):
+    key_path = os.path.join(os.getcwd(), sys.argv[0], 'assets/private_key.pem')
     with open(key_path, 'rt') as f:
         private_key = ECC.import_key(f.read())
 
@@ -39,15 +22,34 @@ if __name__ == '__main__':
 
         if msg.startswith("upload"):
             filename = msg.replace("upload ", "")
-            beacon.store(filename)
+            node.store(filename)
 
         if msg.startswith("download"):
             key = msg.replace("download ", "")
-            beacon.find_value(key)
+            node.find_value(key)
 
         h = SHA512.new(msg.encode())
         signer = DSS.new(private_key, 'fips-186-3')
         signature = signer.sign(h)
         event = Event(msg, signature)
-        beacon.events.add(event)
-        beacon.broadcast(event)
+        node.events.add(event)
+        node.broadcast(event)
+
+
+if __name__ == '__main__':
+
+    '''
+    parser = argparse.ArgumentParser()
+    parser.add_argument('bootaddr', nargs='?', type=str)
+    args = parser.parse_args()
+    server = Server(args.bootaddr)
+    '''
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('port', type=int)
+    parser.add_argument('boot_port', nargs='?', type=int)
+    args = parser.parse_args()
+    beacon = Beacon(args.port, args.boot_port)
+    beacon.start()
+    interact(beacon)
+
