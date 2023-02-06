@@ -1,6 +1,7 @@
 from Crypto.PublicKey import ECC
 from Crypto.Signature import DSS
 from Crypto.Hash import SHA512
+from dotenv import dotenv_values
 from base64 import b64encode
 from beacon import Beacon
 from event import Event
@@ -11,9 +12,10 @@ import json
 import sys
 import os
 
+config = dotenv_values('.env')
 
 def interact(node):
-    key_path = '../assets/private_key.pem'
+    key_path = config['PRIV_KEY']
     with open(key_path, 'rt') as f:
         private_key = ECC.import_key(f.read())
 

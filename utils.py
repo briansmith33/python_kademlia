@@ -1,7 +1,9 @@
 from typing import Optional, Any, List, Tuple, Union
+from dotenv import dotenv_values
 from enum import Enum
 import random
 
+config = dotenv_values(".env")
 
 class MsgType(str, Enum):
     Found = '0'
@@ -22,12 +24,7 @@ class Config(Enum):
     Generator = 3
     KNodes = 20
     Alpha = 3
-    PubKey = "-----BEGIN PUBLIC KEY-----\n"\
-             "MIGbMBAGByqGSM49AgEGBSuBBAAjA4GGAAQBmRPfBQh2igY58tKnFr6wC08OIs+T\n"\
-             "Aovl2Rc+DW4pkIRpUkuz1Fb4bqPsCWeY+AWr2ow+YVopSS93QU3DNkkZvNMAEQdK\n"\
-             "6E9YBpKn1pq/V71fURD4Y619tkJnqy+AFPXf+VNa20kenr0s8TibIJS8fn0qUsOW\n"\
-             "inRoA1bpD6SsFh20P8Y=\n"\
-             "-----END PUBLIC KEY-----"
+    PubKey = config['PUB_KEY']
     BackupHosts = [
             "www.host.com",
             "www.host.net"
@@ -76,39 +73,6 @@ class Queue:
 
     def __len__(self):
         return len(self.items)
-
-
-def random_mac() -> str:
-    octets = [
-        str(hex(random.SystemRandom().randint(0, 255))[2:]),
-        str(hex(random.SystemRandom().randint(0, 255))[2:]),
-        str(hex(random.SystemRandom().randint(0, 255))[2:]),
-        str(hex(random.SystemRandom().randint(0, 255))[2:]),
-        str(hex(random.SystemRandom().randint(0, 255))[2:]),
-        str(hex(random.SystemRandom().randint(0, 255))[2:])]
-
-    mac = ""
-    for o in octets:
-        if len(o) == 1:
-            mac += o + "0:"
-            continue
-        mac += o + ":"
-
-    return mac[:-1]
-
-
-def random_ipv4() -> str:
-    octet1 = random.SystemRandom().randint(128, 173)
-    octet2 = random.SystemRandom().randint(0, 266)
-    octet3 = random.SystemRandom().randint(0, 266)
-    octet4 = random.SystemRandom().randint(0, 266)
-    '''
-    try:
-        print(socket.inet_aton(f"{octet1}.{octet2}.{octet3}.{octet4}"))
-    except OSError:
-        random_ipv4()
-    '''
-    return f"{octet1}.{octet2}.{octet3}.{octet4}"
 
 
 def is_nth_bit_set(x: int, n: int) -> bool:
